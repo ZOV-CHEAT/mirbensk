@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Мырбенская библиотека — Мыргунская бесконечная библиотека</title>
+<style>
+  body { background:#0d0d0f; color:#ddd; font-family:monospace;
+         display:flex; flex-direction:column; align-items:center;
+         padding:20px; min-height:100vh; }
+  h1 { font-size:14px; letter-spacing:2px; color:#777; margin:0 0 4px; text-align:center; }
+  h2 { font-size:11px; letter-spacing:1px; color:#5a5a66; margin:0 0 14px;
+       text-align:center; font-weight:normal; }
+  .id-display { font-size:12px; color:#6cf; word-break:break-all;
+    max-width:420px; text-align:center; margin:8px 0; padding:8px;
+    background:#141418; border:1px solid #2a2a30; border-radius:6px; line-height:1.5; }
+  canvas { border:2px solid #2a2a30; border-radius:8px;
+           image-rendering:pixelated; width:360px; height:360px; background:#000; }
+  .controls { display:flex; gap:10px; margin:14px 0; flex-wrap:wrap; justify-content:center; }
+  button { background:#1a1a20; color:#6cf; border:1px solid #333;
+           padding:10px 18px; font-family:monospace; font-size:13px;
+           cursor:pointer; border-radius:6px; transition:all .15s; }
+  button:hover { background:#26262e; border-color:#6cf; }
+  .tools { display:flex; flex-direction:column; gap:8px; width:420px; margin-top:6px; }
+  .tools input[type=text] { background:#141418; color:#6cf; border:1px solid #2a2a30;
+    padding:9px; font-family:monospace; font-size:11px; border-radius:6px; }
+  .tools input[type=file] { color:#777; font-size:11px; }
+  .tools button { padding:8px; font-size:12px; }
+  #status { font-size:11px; color:#888; min-height:15px; text-align:center; }
+  footer { font-size:9px; color:#444; margin-top:20px; text-align:center; letter-spacing:1px; }
+</style>
+</head>
+<body>
+
+<h1>МЫРБЕНСКАЯ БИБЛИОТЕКА</h1>
+<h2>— Мыргунская бесконечная библиотека —</h2>
+
+<div class="id-display" id="idDisplay">#...</div>
+<canvas id="canvas" width="360" height="360"></canvas>
+
+<div class="controls">
+  <button onclick="prevImage()">◀ НАЗАД</button>
+  <button onclick="nextImage()">ВПЕРЁД ▶</button>
+  <button onclick="randomId()">🎲 СЛУЧАЙНЫЙ</button>
+</div>
+
+<div class="tools">
+  <input type="text" id="idInput" placeholder="Вставь ID (50 символов)">
+  <button onclick="findById()">НАЙТИ КАРТИНКУ ПО ID</button>
+  <input type="file" id="fileInput" accept="image/*">
+  <button onclick="findIdByImage()">НАЙТИ ID ЭТОЙ КАРТИНКИ</button>
+  <div id="status"></div>
+</div>
+
+<footer>МЫРГУН · INFINITE LIBRARY</footer>
+
+<script>
+const LET_LATIN = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+const LET_CYRILLIC =
+  "АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ" +
+  "абвгдеёжзийклмнопрстуфхцчшщъыьэюя" +
+  "ҐґЄєІіЇїЎўЈјЉљЊњЋћЏџЃѓЌќЅѕ";
+const LET_GREEK =
+  "ΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΣΤΥΦΧΨΩ" +
+  "αβγδεζηθικλμνξοπρστυφχψω";
+const LET_ARMENIAN =
+  "ԱԲԳԴԵԶԷԸԹԺԻԼԽԾԿՀՁՂՃՄՅՆՇՈՉՊՋՌՍՎՏՐՑՒՓՔՕՖ" +
+  "աբգդեզէըթժիլխծկհձղճմյնշոչպջռսվտրցւփքօֆ";
+const LET_GEORGIAN = "აბგდევზთიკლმნოპჟრსტუფქღყშჩცძწჭხჯჰ";
+const LET_HEBREW = "אבגדהוזחטיכלמנסעפצקרשת";
+
+const LET_ALL = LET_LATIN + LET_CYRILLIC + LET_GREEK + LET_ARMENIAN + LET_GEORGIAN + LET_HEBREW;
+const DIGITS = "0123456789";
+const SIGNS  = "+-*/=<>?!@#$%&";
+const ALL    = LET_ALL + DIGITS + SIGNS;
+
+const ID_LEN = 50;
+const N_LET_ALL = LET_ALL.length;
+const N_ALL = ALL.length;
+const FIRST_ID = LET_ALL[0] + LET_ALL[0].repeat(49);
+
+const GRID = 11;
+const N_PX = GRID * GRID;
+const PX_BASE = 8n;
+
+function paletteColor(idx) {
+  return [
+    ((idx >> 2) & 1) ? 255 : 0,
+    ((idx >> 1) & 1) ? 255 : 0,
+    ( idx       & 1) ? 255 : 0,
+  ];
+}
+function nearestCubeColor(r, g, b) {
+  return ((r>127?1:0)<<2) | ((g>127?1:0)<<1) | (b>127?1:0);
+}
+
+function idToBigInt(id) {
+  if (id.length !== ID_LEN) return null;
+  const i0 = LET_ALL.indexOf(id[0]);
+  if (i0 < 0) return null;
+  let n = BigInt(i0);
+  for (let i = 1; i < ID_LEN; i++) {
+    const v = ALL.indexOf(id[i]);
+    if (v < 0) return null;
+    n = n * BigInt(N_ALL) + BigInt(v);
+  }
+  return n;
+}
+function bigIntToId(n) {
+  const chars = new Array(ID_LEN);
+  for (let i = ID_LEN - 1; i >= 1; i--) {
+    chars[i] = ALL[Number(n % BigInt(N_ALL))];
+    n /= BigInt(N_ALL);
+  }
+  chars[0] = LET_ALL[Number(n % BigInt(N_LET_ALL))];
+  return chars.join('');
+}
+
+function pixelsToBigInt(pixels) {
+  let n = 0n;
+  for (let i = 0; i < N_PX; i++) n = n * PX_BASE + BigInt(pixels[i]);
+  return n;
+}
+function bigIntToPixels(n) {
+  const px = new Array(N_PX);
+  for (let i = N_PX - 1; i >= 0; i--) { px[i] = Number(n % PX_BASE); n /= PX_BASE; }
+  return px;
+}
+function mosaicToId(pixels) { return bigIntToId(pixelsToBigInt(pixels)); }
+function idToMosaic(id) {
+  const n = idToBigInt(id);
+  return n === null ? null : bigIntToPixels(n);
+}
+function incId(id, delta) {
+  const n = idToBigInt(id);
+  if (n === null) return null;
+  const total = BigInt(N_LET_ALL) * (BigInt(N_ALL) ** BigInt(ID_LEN - 1));
+  return bigIntToId(((n + BigInt(delta)) % total + total) % total);
+}
+
+function renderMosaic(pixels, ctx) {
+  const cell = 360 / GRID;
+  ctx.imageSmoothingEnabled = false;
+  for (let y = 0; y < GRID; y++) {
+    for (let x = 0; x < GRID; x++) {
+      const [r,g,b] = paletteColor(pixels[y*GRID + x]);
+      ctx.fillStyle = `rgb(${r},${g},${b})`;
+      ctx.fillRect(x*cell, y*cell, cell, cell);
+    }
+  }
+}
+function imageToPixels(imgCanvas) {
+  const ctx = imgCanvas.getContext('2d');
+  const data = ctx.getImageData(0,0,360,360).data;
+  const pixels = [];
+  const cw = 360 / GRID, ch = 360 / GRID;
+  for (let gy = 0; gy < GRID; gy++) {
+    for (let gx = 0; gx < GRID; gx++) {
+      let sr=0, sg=0, sb=0, cnt=0;
+      const x0 = Math.floor(gx*cw), x1 = Math.floor((gx+1)*cw);
+      const y0 = Math.floor(gy*ch), y1 = Math.floor((gy+1)*ch);
+      for (let y = y0; y < y1; y++) {
+        for (let x = x0; x < x1; x++) {
+          const i = (y*360 + x) * 4;
+          sr += data[i]; sg += data[i+1]; sb += data[i+2]; cnt++;
+        }
+      }
+      pixels.push(nearestCubeColor(sr/cnt, sg/cnt, sb/cnt));
+    }
+  }
+  return pixels;
+}
+
+let currentId = FIRST_ID;
+function render() {
+  const ctx = document.getElementById('canvas').getContext('2d');
+  const px = idToMosaic(currentId);
+  if (!px) { setStatus('Некорректный ID'); return; }
+  renderMosaic(px, ctx);
+  document.getElementById('idDisplay').textContent = '#' + currentId;
+}
+function nextImage(){ currentId = incId(currentId, 1); render(); }
+function prevImage(){ currentId = incId(currentId, -1); render(); }
+function randomId(){
+  const c = new Array(ID_LEN);
+  c[0] = LET_ALL[Math.floor(Math.random()*N_LET_ALL)];
+  for (let i=1;i<ID_LEN;i++) c[i] = ALL[Math.floor(Math.random()*N_ALL)];
+  currentId = c.join(''); render(); setStatus('Случайный ID');
+}
+function setStatus(m){ document.getElementById('status').textContent = m; }
+
+function findById(){
+  const raw = document.getElementById('idInput').value.trim().replace(/^#/,'');
+  if (raw.length !== ID_LEN){ setStatus('Нужно ровно '+ID_LEN+' символов'); return; }
+  if (!LET_ALL.includes(raw[0])){ setStatus('Первый символ должен быть буквой'); return; }
+  for (let i=1;i<raw.length;i++){
+    if (!ALL.includes(raw[i])){ setStatus('Недопустимый символ: '+raw[i]); return; }
+  }
+  currentId = raw; render(); setStatus('Найдено');
+}
+function findIdByImage(){
+  const file = document.getElementById('fileInput').files[0];
+  if (!file){ setStatus('Выбери файл'); return; }
+  const img = new Image();
+  const url = URL.createObjectURL(file);
+  img.onload = () => {
+    const c = document.createElement('canvas'); c.width=360; c.height=360;
+    const x = c.getContext('2d');
+    const s = Math.min(img.width, img.height);
+    x.drawImage(img, (img.width-s)/2, (img.height-s)/2, s, s, 0, 0, 360, 360);
+    currentId = mosaicToId(imageToPixels(c));
+    render();
+    setStatus('ID вычислен');
+    URL.revokeObjectURL(url);
+  };
+  img.onerror = () => setStatus('Ошибка загрузки');
+  img.src = url;
+}
+render();
+</script>
+</body>
+</html>
