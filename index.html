@@ -10,9 +10,27 @@
   h1 { font-size:14px; letter-spacing:2px; color:#777; margin:0 0 4px; text-align:center; }
   h2 { font-size:11px; letter-spacing:1px; color:#5a5a66; margin:0 0 14px;
        text-align:center; font-weight:normal; }
-  .id-display { font-size:12px; color:#6cf; word-break:break-all;
-    max-width:420px; text-align:center; margin:8px 0; padding:8px;
-    background:#141418; border:1px solid #2a2a30; border-radius:6px; line-height:1.5; }
+  .version-menu { position:fixed; top:12px; right:12px; z-index:10;
+    background:#141418; border:1px solid #2a2a30; border-radius:6px;
+    padding:8px; display:flex; flex-direction:column; gap:6px; font-size:11px; }
+  .version-menu label { color:#888; cursor:pointer; }
+  .version-menu input { margin-right:6px; }
+  .version-menu select {
+    background:#1a1a20; color:#6cf; border:1px solid #333;
+    padding:5px 8px; font-family:monospace; font-size:11px;
+    border-radius:4px; cursor:pointer; }
+  #v2opts { display:none; flex-direction:column; gap:6px; }
+  #v2info { color:#5a5a66; font-size:9px; line-height:1.4; }
+  .id-wrap { position:relative; max-width:420px; width:100%; margin:8px 0; }
+  .id-display { font-size:11px; color:#6cf; word-break:break-all;
+    text-align:center; padding:8px; padding-right:100px;
+    background:#141418; border:1px solid #2a2a30; border-radius:6px; line-height:1.5;
+    max-height:160px; overflow-y:auto; }
+  .id-actions { position:absolute; top:6px; right:6px; display:flex; gap:4px; }
+  .id-actions button { padding:4px 8px; font-size:10px; border-radius:4px; }
+  #toggleMore { font-size:10px; color:#6cf; background:none; border:none;
+    cursor:pointer; padding:4px; text-align:center; width:100%; }
+  #toggleMore:hover { color:#9df; }
   canvas { border:2px solid #2a2a30; border-radius:8px;
            image-rendering:pixelated; width:360px; height:360px; background:#000; }
   .controls { display:flex; gap:10px; margin:14px 0; flex-wrap:wrap; justify-content:center; }
@@ -31,10 +49,38 @@
 </head>
 <body>
 
+<div class="version-menu">
+  <div style="color:#6cf; font-size:10px; letter-spacing:1px;">ВЕРСИЯ</div>
+  <label><input type="radio" name="ver" value="1" checked onchange="switchVersion()">V1</label>
+  <label><input type="radio" name="ver" value="2" onchange="switchVersion()">V2</label>
+  <div id="v2opts">
+    <div style="color:#888; font-size:10px; margin-top:4px;">Длина ID</div>
+    <select id="lenSelect" onchange="onLenChange()">
+      <option value="50">50</option>
+      <option value="100">100</option>
+      <option value="250">250</option>
+      <option value="360" selected>360</option>
+      <option value="800">800</option>
+      <option value="1000">1000</option>
+      <option value="2000">2000</option>
+      <option value="5000">5000</option>
+      <option value="10000">10000</option>
+    </select>
+    <div id="v2info"></div>
+  </div>
+</div>
+
 <h1>МЫРБЕНСКАЯ БИБЛИОТЕКА</h1>
 <h2>— Мыргунская бесконечная библиотека —</h2>
 
-<div class="id-display" id="idDisplay">#...</div>
+<div class="id-wrap">
+  <div class="id-display" id="idDisplay">#...</div>
+  <div class="id-actions">
+    <button id="copyBtn" onclick="copyId()">КОПИРОВАТЬ</button>
+  </div>
+</div>
+<button id="toggleMore" onclick="toggleFullId()" style="display:none;">ПОКАЗАТЬ БОЛЬШЕ</button>
+
 <canvas id="canvas" width="360" height="360"></canvas>
 
 <div class="controls">
@@ -44,7 +90,7 @@
 </div>
 
 <div class="tools">
-  <input type="text" id="idInput" placeholder="Вставь ID (50 символов)">
+  <input type="text" id="idInput" placeholder="Вставь ID">
   <button onclick="findById()">НАЙТИ КАРТИНКУ ПО ID</button>
   <input type="file" id="fileInput" accept="image/*">
   <button onclick="findIdByImage()">НАЙТИ ID ЭТОЙ КАРТИНКИ</button>
@@ -72,42 +118,29 @@ const LET_ALL = LET_LATIN + LET_CYRILLIC + LET_GREEK + LET_ARMENIAN + LET_GEORGI
 const DIGITS = "0123456789";
 const SIGNS  = "+-*/=<>?!@#$%&";
 const ALL    = LET_ALL + DIGITS + SIGNS;
-
-const ID_LEN = 50;
 const N_LET_ALL = LET_ALL.length;
 const N_ALL = ALL.length;
-const FIRST_ID = LET_ALL[0] + LET_ALL[0].repeat(49);
 
-const GRID = 11;
-const N_PX = GRID * GRID;
-const PX_BASE = 8n;
+const ID_PREVIEW_LEN = 360;
+let showFullId = false;
 
-function paletteColor(idx) {
-  return [
-    ((idx >> 2) & 1) ? 255 : 0,
-    ((idx >> 1) & 1) ? 255 : 0,
-    ( idx       & 1) ? 255 : 0,
-  ];
-}
-function nearestCubeColor(r, g, b) {
-  return ((r>127?1:0)<<2) | ((g>127?1:0)<<1) | (b>127?1:0);
-}
+let VERSION = 1;
 
-function idToBigInt(id) {
-  if (id.length !== ID_LEN) return null;
+function idToBigInt(id, len) {
+  if (id.length !== len) return null;
   const i0 = LET_ALL.indexOf(id[0]);
   if (i0 < 0) return null;
   let n = BigInt(i0);
-  for (let i = 1; i < ID_LEN; i++) {
+  for (let i = 1; i < len; i++) {
     const v = ALL.indexOf(id[i]);
     if (v < 0) return null;
     n = n * BigInt(N_ALL) + BigInt(v);
   }
   return n;
 }
-function bigIntToId(n) {
-  const chars = new Array(ID_LEN);
-  for (let i = ID_LEN - 1; i >= 1; i--) {
+function bigIntToId(n, len) {
+  const chars = new Array(len);
+  for (let i = len - 1; i >= 1; i--) {
     chars[i] = ALL[Number(n % BigInt(N_ALL))];
     n /= BigInt(N_ALL);
   }
@@ -115,88 +148,368 @@ function bigIntToId(n) {
   return chars.join('');
 }
 
-function pixelsToBigInt(pixels) {
+// ==================== V1 ====================
+const V1_GRID = 11;
+const V1_N_PX = V1_GRID * V1_GRID;
+const V1_ID_LEN = 50;
+const V1_FIRST_ID = LET_ALL[0].repeat(V1_ID_LEN);
+let V1_currentId = V1_FIRST_ID;
+
+function v1_paletteColor(idx) {
+  return [
+    ((idx >> 2) & 1) ? 255 : 0,
+    ((idx >> 1) & 1) ? 255 : 0,
+    ( idx       & 1) ? 255 : 0,
+  ];
+}
+function v1_nearestCubeColor(r, g, b) {
+  return ((r>127?1:0)<<2) | ((g>127?1:0)<<1) | (b>127?1:0);
+}
+function v1_pixelsToBigInt(pixels) {
   let n = 0n;
-  for (let i = 0; i < N_PX; i++) n = n * PX_BASE + BigInt(pixels[i]);
+  for (let i = 0; i < V1_N_PX; i++) n = n * 8n + BigInt(pixels[i]);
   return n;
 }
-function bigIntToPixels(n) {
-  const px = new Array(N_PX);
-  for (let i = N_PX - 1; i >= 0; i--) { px[i] = Number(n % PX_BASE); n /= PX_BASE; }
+function v1_bigIntToPixels(n) {
+  const px = new Array(V1_N_PX);
+  for (let i = V1_N_PX - 1; i >= 0; i--) { px[i] = Number(n % 8n); n /= 8n; }
   return px;
 }
-function mosaicToId(pixels) { return bigIntToId(pixelsToBigInt(pixels)); }
-function idToMosaic(id) {
-  const n = idToBigInt(id);
-  return n === null ? null : bigIntToPixels(n);
-}
-function incId(id, delta) {
-  const n = idToBigInt(id);
-  if (n === null) return null;
-  const total = BigInt(N_LET_ALL) * (BigInt(N_ALL) ** BigInt(ID_LEN - 1));
-  return bigIntToId(((n + BigInt(delta)) % total + total) % total);
-}
-
-function renderMosaic(pixels, ctx) {
-  const cell = 360 / GRID;
+function v1_renderMosaic(pixels, ctx) {
+  const cell = 360 / V1_GRID;
   ctx.imageSmoothingEnabled = false;
-  for (let y = 0; y < GRID; y++) {
-    for (let x = 0; x < GRID; x++) {
-      const [r,g,b] = paletteColor(pixels[y*GRID + x]);
+  for (let y = 0; y < V1_GRID; y++) {
+    for (let x = 0; x < V1_GRID; x++) {
+      const [r,g,b] = v1_paletteColor(pixels[y*V1_GRID + x]);
       ctx.fillStyle = `rgb(${r},${g},${b})`;
       ctx.fillRect(x*cell, y*cell, cell, cell);
     }
   }
 }
-function imageToPixels(imgCanvas) {
+function v1_imageToPixels(imgCanvas) {
   const ctx = imgCanvas.getContext('2d');
   const data = ctx.getImageData(0,0,360,360).data;
   const pixels = [];
-  const cw = 360 / GRID, ch = 360 / GRID;
-  for (let gy = 0; gy < GRID; gy++) {
-    for (let gx = 0; gx < GRID; gx++) {
-      let sr=0, sg=0, sb=0, cnt=0;
+  const cw = 360 / V1_GRID;
+  for (let gy = 0; gy < V1_GRID; gy++) {
+    for (let gx = 0; gx < V1_GRID; gx++) {
+      let sr=0,sg=0,sb=0,cnt=0;
       const x0 = Math.floor(gx*cw), x1 = Math.floor((gx+1)*cw);
-      const y0 = Math.floor(gy*ch), y1 = Math.floor((gy+1)*ch);
+      const y0 = Math.floor(gy*cw), y1 = Math.floor((gy+1)*cw);
       for (let y = y0; y < y1; y++) {
         for (let x = x0; x < x1; x++) {
           const i = (y*360 + x) * 4;
           sr += data[i]; sg += data[i+1]; sb += data[i+2]; cnt++;
         }
       }
-      pixels.push(nearestCubeColor(sr/cnt, sg/cnt, sb/cnt));
+      pixels.push(v1_nearestCubeColor(sr/cnt, sg/cnt, sb/cnt));
     }
   }
   return pixels;
 }
 
-let currentId = FIRST_ID;
+// ==================== V2 ====================
+const V2_N_COLORS = 12;
+const V2_BITS_IDX = 4;
+const V2_BITS_COLOR = 12;
+const V2_PALETTE_BITS = V2_N_COLORS * V2_BITS_COLOR;
+const V2_LOG2_ALL = Math.log2(N_ALL);
+
+let V2_ID_LEN = 360;
+let V2_GRID = 1;
+let V2_N_PX = 1;
+let V2_currentId = LET_ALL[0].repeat(V2_ID_LEN);
+
+function v2_calcGrid() {
+  const totalBits = Math.floor(V2_ID_LEN * V2_LOG2_ALL);
+  const idxBits = totalBits - V2_PALETTE_BITS;
+  const nPx = Math.floor(idxBits / V2_BITS_IDX);
+  const side = Math.max(2, Math.floor(Math.sqrt(nPx)));
+  V2_GRID = side;
+  V2_N_PX = side * side;
+}
+
+function v2_packState(palette, indices) {
+  let n = 0n;
+  for (let i = 0; i < V2_N_COLORS; i++) {
+    const c = palette[i] || [0,0,0];
+    const v = ((c[0] & 0xF) << 8) | ((c[1] & 0xF) << 4) | (c[2] & 0xF);
+    n = n * BigInt(1 << V2_BITS_COLOR) + BigInt(v);
+  }
+  for (let i = 0; i < V2_N_PX; i++) {
+    n = n * BigInt(1 << V2_BITS_IDX) + BigInt(indices[i] || 0);
+  }
+  return n;
+}
+function v2_unpackState(n) {
+  const indices = new Array(V2_N_PX);
+  for (let i = V2_N_PX - 1; i >= 0; i--) {
+    indices[i] = Number(n % BigInt(1 << V2_BITS_IDX));
+    n /= BigInt(1 << V2_BITS_IDX);
+  }
+  const palette = new Array(V2_N_COLORS);
+  for (let i = V2_N_COLORS - 1; i >= 0; i--) {
+    const v = Number(n % BigInt(1 << V2_BITS_COLOR));
+    n /= BigInt(1 << V2_BITS_COLOR);
+    const r = (v >> 8) & 0xF, g = (v >> 4) & 0xF, b = v & 0xF;
+    palette[i] = [r * 17, g * 17, b * 17];
+  }
+  return { palette, indices };
+}
+function v2_renderState(state, ctx) {
+  const cell = 360 / V2_GRID;
+  ctx.imageSmoothingEnabled = false;
+  for (let y = 0; y < V2_GRID; y++) {
+    for (let x = 0; x < V2_GRID; x++) {
+      const idx = state.indices[y*V2_GRID + x];
+      const c = state.palette[idx] || [0,0,0];
+      ctx.fillStyle = `rgb(${c[0]},${c[1]},${c[2]})`;
+      ctx.fillRect(x*cell, y*cell, cell, cell);
+    }
+  }
+}
+function v2_luma(c) { return 0.299*c[0] + 0.587*c[1] + 0.114*c[2]; }
+function v2_normalizeColors(palette) {
+  let out = palette.map(c => [
+    Math.pow(c[0]/255, 0.85) * 255,
+    Math.pow(c[1]/255, 0.85) * 255,
+    Math.pow(c[2]/255, 0.85) * 255,
+  ]);
+  out = out.map(c => {
+    const avg = (c[0]+c[1]+c[2])/3;
+    return [
+      Math.max(0, Math.min(255, avg + (c[0]-avg)*1.2)),
+      Math.max(0, Math.min(255, avg + (c[1]-avg)*1.2)),
+      Math.max(0, Math.min(255, avg + (c[2]-avg)*1.2)),
+    ];
+  });
+  const avgL = out.reduce((s,c)=>s+v2_luma(c),0)/out.length;
+  if (avgL < 70) {
+    const shift = 70 - avgL;
+    out = out.map(c => c.map(v => Math.max(0, Math.min(255, v+shift))));
+  }
+  return out.map(c => c.map(v => Math.round(v/17)*17));
+}
+function v2_medianCut(samples, k) {
+  if (samples.length === 0) return Array(k).fill([0,0,0]);
+  let boxes = [samples];
+  while (boxes.length < k) {
+    boxes.sort((a,b)=>b.length-a.length);
+    const box = boxes.shift();
+    if (!box || box.length < 2) { boxes.push(box); break; }
+    let minR=255,maxR=0,minG=255,maxG=0,minB=255,maxB=0;
+    for (const c of box) {
+      if (c[0]<minR)minR=c[0]; if (c[0]>maxR)maxR=c[0];
+      if (c[1]<minG)minG=c[1]; if (c[1]>maxG)maxG=c[1];
+      if (c[2]<minB)minB=c[2]; if (c[2]>maxB)maxB=c[2];
+    }
+    const dr=maxR-minR, dg=maxG-minG, db=maxB-minB;
+    let axis = 0;
+    if (dg >= dr && dg >= db) axis = 1;
+    else if (db >= dr && db >= dg) axis = 2;
+    box.sort((a,b)=>a[axis]-b[axis]);
+    const mid = Math.floor(box.length/2);
+    boxes.push(box.slice(0,mid), box.slice(mid));
+  }
+  const result = boxes.map(box => {
+    let sr=0,sg=0,sb=0;
+    for (const c of box) { sr+=c[0]; sg+=c[1]; sb+=c[2]; }
+    const n = box.length || 1;
+    return [
+      Math.round(sr/n/17)*17,
+      Math.round(sg/n/17)*17,
+      Math.round(sb/n/17)*17,
+    ].map(v => Math.max(0, Math.min(255, v)));
+  });
+  while (result.length < k) result.push([0,0,0]);
+  return result;
+}
+function v2_nearestInPalette(r, g, b, palette) {
+  let best = 0, bestD = Infinity;
+  for (let i = 0; i < palette.length; i++) {
+    const p = palette[i];
+    const dr=r-p[0], dg=g-p[1], db=b-p[2];
+    const d = dr*dr+dg*dg+db*db;
+    if (d < bestD) { bestD = d; best = i; }
+  }
+  return best;
+}
+function v2_imageToState(imgCanvas) {
+  const ctx = imgCanvas.getContext('2d');
+  const data = ctx.getImageData(0,0,360,360).data;
+  const cw = 360 / V2_GRID;
+  const cellColors = [];
+  for (let gy = 0; gy < V2_GRID; gy++) {
+    for (let gx = 0; gx < V2_GRID; gx++) {
+      let sr=0,sg=0,sb=0,cnt=0;
+      const x0 = Math.floor(gx*cw), x1 = Math.floor((gx+1)*cw);
+      const y0 = Math.floor(gy*cw), y1 = Math.floor((gy+1)*cw);
+      for (let y = y0; y < y1; y++) {
+        for (let x = x0; x < x1; x++) {
+          const i = (y*360 + x) * 4;
+          sr += data[i]; sg += data[i+1]; sb += data[i+2]; cnt++;
+        }
+      }
+      cellColors.push([sr/cnt, sg/cnt, sb/cnt]);
+    }
+  }
+  let palette = v2_medianCut(cellColors.slice(), V2_N_COLORS);
+  palette = v2_normalizeColors(palette);
+  const indices = cellColors.map(c => v2_nearestInPalette(c[0], c[1], c[2], palette));
+  return { palette, indices };
+}
+
+// ==================== Общие ====================
+function switchVersion() {
+  VERSION = parseInt(document.querySelector('input[name="ver"]:checked').value, 10);
+  document.getElementById('v2opts').style.display = VERSION === 2 ? 'flex' : 'none';
+  if (VERSION === 2) {
+    V2_ID_LEN = parseInt(document.getElementById('lenSelect').value, 10);
+    v2_calcGrid();
+    updateV2Info();
+    setStatus('V2 · ' + V2_ID_LEN + ' символов');
+  } else {
+    setStatus('V1');
+  }
+  showFullId = false;
+  document.getElementById('idInput').placeholder = 'Вставь ID (' + currentIdLen() + ' символов)';
+  render();
+}
+function onLenChange() {
+  V2_ID_LEN = parseInt(document.getElementById('lenSelect').value, 10);
+  v2_calcGrid();
+  updateV2Info();
+  V2_currentId = LET_ALL[0].repeat(V2_ID_LEN);
+  showFullId = false;
+  document.getElementById('idInput').placeholder = 'Вставь ID (' + currentIdLen() + ' символов)';
+  render();
+  setStatus('V2 · ' + V2_ID_LEN + ' символов · ' + V2_GRID + '×' + V2_GRID);
+}
+function updateV2Info() {
+  const totalBits = Math.floor(V2_ID_LEN * V2_LOG2_ALL);
+  document.getElementById('v2info').textContent =
+    V2_GRID + '×' + V2_GRID + ' · ' + V2_N_COLORS + ' цветов · ' + totalBits + ' бит';
+}
+function currentIdLen() { return VERSION === 1 ? V1_ID_LEN : V2_ID_LEN; }
+function getCurrentId() { return VERSION === 1 ? V1_currentId : V2_currentId; }
+function setCurrentId(id) {
+  if (VERSION === 1) V1_currentId = id; else V2_currentId = id;
+}
+
 function render() {
   const ctx = document.getElementById('canvas').getContext('2d');
-  const px = idToMosaic(currentId);
-  if (!px) { setStatus('Некорректный ID'); return; }
-  renderMosaic(px, ctx);
-  document.getElementById('idDisplay').textContent = '#' + currentId;
+  const id = getCurrentId();
+  updateIdDisplay(id);
+
+  if (VERSION === 1) {
+    const n = idToBigInt(id, V1_ID_LEN);
+    if (n === null) { setStatus('Некорректный ID'); return; }
+    const max = 8n ** BigInt(V1_N_PX);
+    v1_renderMosaic(v1_bigIntToPixels(n % max), ctx);
+  } else {
+    const n = idToBigInt(id, V2_ID_LEN);
+    if (n === null) { setStatus('Некорректный ID'); return; }
+    const max = (BigInt(1 << V2_BITS_COLOR)) ** BigInt(V2_N_COLORS) *
+                (BigInt(1 << V2_BITS_IDX)) ** BigInt(V2_N_PX);
+    v2_renderState(v2_unpackState(n % max), ctx);
+  }
 }
-function nextImage(){ currentId = incId(currentId, 1); render(); }
-function prevImage(){ currentId = incId(currentId, -1); render(); }
-function randomId(){
-  const c = new Array(ID_LEN);
+
+function updateIdDisplay(id) {
+  const el = document.getElementById('idDisplay');
+  const toggle = document.getElementById('toggleMore');
+  const full = '#' + id;
+
+  if (id.length <= ID_PREVIEW_LEN) {
+    el.textContent = full;
+    toggle.style.display = 'none';
+    showFullId = false;
+    return;
+  }
+
+  if (showFullId) {
+    el.textContent = full;
+    toggle.textContent = 'СКРЫТЬ';
+  } else {
+    el.textContent = full.slice(0, ID_PREVIEW_LEN) + '…';
+    toggle.textContent = 'ПОКАЗАТЬ БОЛЬШЕ (' + id.length + ' символов)';
+  }
+  toggle.style.display = 'block';
+}
+
+function toggleFullId() {
+  showFullId = !showFullId;
+  updateIdDisplay(getCurrentId());
+}
+
+function copyId() {
+  const id = getCurrentId();
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(id).then(
+      () => setStatus('ID скопирован (' + id.length + ' символов)'),
+      () => fallbackCopy(id)
+    );
+  } else {
+    fallbackCopy(id);
+  }
+}
+function fallbackCopy(text) {
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed';
+  ta.style.opacity = '0';
+  document.body.appendChild(ta);
+  ta.select();
+  try {
+    document.execCommand('copy');
+    setStatus('ID скопирован (' + text.length + ' символов)');
+  } catch (e) {
+    setStatus('Не удалось скопировать');
+  }
+  document.body.removeChild(ta);
+}
+
+function nextImage() {
+  const len = currentIdLen();
+  const n = idToBigInt(getCurrentId(), len);
+  if (n === null) return;
+  const total = BigInt(N_LET_ALL) * (BigInt(N_ALL) ** BigInt(len - 1));
+  setCurrentId(bigIntToId((n + 1n) % total, len));
+  render();
+}
+function prevImage() {
+  const len = currentIdLen();
+  const n = idToBigInt(getCurrentId(), len);
+  if (n === null) return;
+  const total = BigInt(N_LET_ALL) * (BigInt(N_ALL) ** BigInt(len - 1));
+  setCurrentId(bigIntToId((n - 1n + total) % total, len));
+  render();
+}
+function randomId() {
+  const len = currentIdLen();
+  const c = new Array(len);
   c[0] = LET_ALL[Math.floor(Math.random()*N_LET_ALL)];
-  for (let i=1;i<ID_LEN;i++) c[i] = ALL[Math.floor(Math.random()*N_ALL)];
-  currentId = c.join(''); render(); setStatus('Случайный ID');
+  for (let i=1;i<len;i++) c[i] = ALL[Math.floor(Math.random()*N_ALL)];
+  setCurrentId(c.join(''));
+  render();
+  setStatus('Случайный ID');
 }
 function setStatus(m){ document.getElementById('status').textContent = m; }
 
 function findById(){
+  const len = currentIdLen();
   const raw = document.getElementById('idInput').value.trim().replace(/^#/,'');
-  if (raw.length !== ID_LEN){ setStatus('Нужно ровно '+ID_LEN+' символов'); return; }
+  if (raw.length !== len){ setStatus('Нужно ровно '+len+' символов'); return; }
   if (!LET_ALL.includes(raw[0])){ setStatus('Первый символ должен быть буквой'); return; }
   for (let i=1;i<raw.length;i++){
     if (!ALL.includes(raw[i])){ setStatus('Недопустимый символ: '+raw[i]); return; }
   }
-  currentId = raw; render(); setStatus('Найдено');
+  setCurrentId(raw);
+  showFullId = false;
+  render();
+  setStatus('Найдено');
 }
+
 function findIdByImage(){
   const file = document.getElementById('fileInput').files[0];
   if (!file){ setStatus('Выбери файл'); return; }
@@ -207,7 +520,17 @@ function findIdByImage(){
     const x = c.getContext('2d');
     const s = Math.min(img.width, img.height);
     x.drawImage(img, (img.width-s)/2, (img.height-s)/2, s, s, 0, 0, 360, 360);
-    currentId = mosaicToId(imageToPixels(c));
+
+    if (VERSION === 1) {
+      const px = v1_imageToPixels(c);
+      const n = v1_pixelsToBigInt(px);
+      setCurrentId(bigIntToId(n, V1_ID_LEN));
+    } else {
+      const st = v2_imageToState(c);
+      const n = v2_packState(st.palette, st.indices);
+      setCurrentId(bigIntToId(n, V2_ID_LEN));
+    }
+    showFullId = false;
     render();
     setStatus('ID вычислен');
     URL.revokeObjectURL(url);
@@ -215,7 +538,8 @@ function findIdByImage(){
   img.onerror = () => setStatus('Ошибка загрузки');
   img.src = url;
 }
-render();
+
+switchVersion();
 </script>
 </body>
 </html>
