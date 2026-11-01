@@ -44,6 +44,12 @@
   .tools input[type=file] { color:#777; font-size:11px; }
   .tools button { padding:8px; font-size:12px; }
   #status { font-size:11px; color:#888; min-height:15px; text-align:center; }
+  .paste-zone { width:420px; margin-top:6px; border:2px dashed #2a2a30;
+    border-radius:8px; padding:16px; text-align:center; color:#555;
+    font-size:11px; transition:all .15s; cursor:text; }
+  .paste-zone.dragover, .paste-zone:focus {
+    border-color:#6cf; color:#6cf; outline:none; background:#141418; }
+  .paste-zone.active { border-color:#4a4; color:#4a4; }
   footer { font-size:9px; color:#444; margin-top:20px; text-align:center; letter-spacing:1px; }
 </style>
 </head>
@@ -94,6 +100,9 @@
   <button onclick="findById()">НАЙТИ КАРТИНКУ ПО ID</button>
   <input type="file" id="fileInput" accept="image/*">
   <button onclick="findIdByImage()">НАЙТИ ID ЭТОЙ КАРТИНКИ</button>
+  <div id="pasteZone" class="paste-zone" tabindex="0">
+    Ctrl+V — вставить картинку из буфера · или перетащи файл сюда
+  </div>
   <div id="status"></div>
 </div>
 
@@ -510,35 +519,100 @@ function findById(){
   setStatus('Найдено');
 }
 
+// ==================== ОБРАБОТКА КАРТИНКИ ====================
+function processImage(img) {
+  const c = document.createElement('canvas'); c.width=360; c.height=360;
+  const x = c.getContext('2d');
+  const s = Math.min(img.width, img.height);
+  x.drawImage(img, (img.width-s)/2, (img.height-s)/2, s, s, 0, 0, 360, 360);
+
+  if (VERSION === 1) {
+    const px = v1_imageToPixels(c);
+    const n = v1_pixelsToBigInt(px);
+    setCurrentId(bigIntToId(n, V1_ID_LEN));
+  } else {
+    const st = v2_imageToState(c);
+    const n = v2_packState(st.palette, st.indices);
+    setCurrentId(bigIntToId(n, V2_ID_LEN));
+  }
+  showFullId = false;
+  render();
+  setStatus('ID вычислен');
+}
+
 function findIdByImage(){
   const file = document.getElementById('fileInput').files[0];
   if (!file){ setStatus('Выбери файл'); return; }
   const img = new Image();
   const url = URL.createObjectURL(file);
-  img.onload = () => {
-    const c = document.createElement('canvas'); c.width=360; c.height=360;
-    const x = c.getContext('2d');
-    const s = Math.min(img.width, img.height);
-    x.drawImage(img, (img.width-s)/2, (img.height-s)/2, s, s, 0, 0, 360, 360);
-
-    if (VERSION === 1) {
-      const px = v1_imageToPixels(c);
-      const n = v1_pixelsToBigInt(px);
-      setCurrentId(bigIntToId(n, V1_ID_LEN));
-    } else {
-      const st = v2_imageToState(c);
-      const n = v2_packState(st.palette, st.indices);
-      setCurrentId(bigIntToId(n, V2_ID_LEN));
-    }
-    showFullId = false;
-    render();
-    setStatus('ID вычислен');
-    URL.revokeObjectURL(url);
-  };
+  img.onload = () => { processImage(img); URL.revokeObjectURL(url); };
   img.onerror = () => setStatus('Ошибка загрузки');
   img.src = url;
 }
 
+// ==================== CTRL+V И DRAG&DROP ====================
+function handlePasteEvent(e) {
+  const items = e.clipboardData && e.clipboardData.items;
+  if (!items) return;
+  for (let i = 0; i < items.length; i++) {
+    if (items[i].type && items[i].type.indexOf('image') === 0) {
+      const blob = items[i].getAsFile();
+      if (!blob) continue;
+      e.preventDefault();
+      const img = new Image();
+      const url = URL.createObjectURL(blob);
+      img.onload = () => {
+        processImage(img);
+        URL.revokeObjectURL(url);
+        flashPasteZone();
+      };
+      img.onerror = () => setStatus('Ошибка чтения картинки');
+      img.src = url;
+      return;
+    }
+  }
+}
+
+function flashPasteZone() {
+  const z = document.getElementById('pasteZone');
+  z.classList.add('active');
+  setTimeout(() => z.classList.remove('active'), 600);
+}
+
+function setupPasteHandlers() {
+  const zone = document.getElementById('pasteZone');
+
+  document.addEventListener('paste', (e) => {
+    // Не перехватываем, если фокус в поле ввода текста
+    const t = e.target;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
+    handlePasteEvent(e);
+  });
+
+  zone.addEventListener('paste', handlePasteEvent);
+
+  zone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    zone.classList.add('dragover');
+  });
+  zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
+  zone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    zone.classList.remove('dragover');
+    const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if (!f) return;
+    if (!f.type || f.type.indexOf('image') !== 0) { setStatus('Это не картинка'); return; }
+    const img = new Image();
+    const url = URL.createObjectURL(f);
+    img.onload = () => { processImage(img); URL.revokeObjectURL(url); flashPasteZone(); };
+    img.onerror = () => setStatus('Ошибка чтения картинки');
+    img.src = url;
+  });
+
+  zone.addEventListener('click', () => zone.focus());
+}
+
+setupPasteHandlers();
 switchVersion();
 </script>
 </body>
